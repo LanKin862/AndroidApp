@@ -37,10 +37,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.Preferences
 
-// Extension function for DataStore
+// DataStore扩展函数
 val Context.dataStore by preferencesDataStore(name = "settings")
 
-// Preference Keys
+// 偏好设置键
 object PreferenceKeys {
     val AI_API_URL = stringPreferencesKey("ai_api_url")
     val AI_API_KEY = stringPreferencesKey("ai_api_key")
@@ -53,7 +53,7 @@ fun SettingsScreen() {
     val repository = remember { AppRepository(context) }
     val coroutineScope = rememberCoroutineScope()
     
-    // Get settings from repository
+    // 从仓库获取设置
     val savedApiUrl by repository.apiUrl.collectAsState(initial = "")
     val savedApiKey by repository.apiKey.collectAsState(initial = "")
     val savedModel by repository.aiModel.collectAsState(initial = "")
@@ -63,16 +63,16 @@ fun SettingsScreen() {
     var selectedModel by remember { mutableStateOf("") }
     var isSaved by remember { mutableStateOf(false) }
     
-    // Available models
+    // 可用模型
     val models = listOf(
         "deepseek-chat",
         "deepseek-reasoner"
     )
     
-    // Dropdown state
+    // 下拉菜单状态
     var expanded by remember { mutableStateOf(false) }
     
-    // Load saved settings
+    // 加载已保存的设置
     LaunchedEffect(savedApiUrl, savedApiKey, savedModel) {
         apiUrl = savedApiUrl
         apiKey = savedApiKey
@@ -91,7 +91,7 @@ fun SettingsScreen() {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "AI Settings",
+                text = "AI设置",
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
@@ -102,7 +102,7 @@ fun SettingsScreen() {
                     apiUrl = it
                     isSaved = false
                 },
-                label = { Text("AI API URL") },
+                label = { Text("AI API地址") },
                 placeholder = { Text("https://api.deepseek.com") },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -115,14 +115,14 @@ fun SettingsScreen() {
                     apiKey = it
                     isSaved = false
                 },
-                label = { Text("AI API Key") },
-                placeholder = { Text("Enter your DeepSeek API key") },
+                label = { Text("AI API密钥") },
+                placeholder = { Text("输入您的DeepSeek API密钥") },
                 modifier = Modifier.fillMaxWidth()
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Model dropdown
+            // 模型下拉菜单
             ExposedDropdownMenuBox(
                 expanded = expanded,
                 onExpandedChange = { expanded = it },
@@ -132,7 +132,7 @@ fun SettingsScreen() {
                     value = selectedModel,
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("AI Model") },
+                    label = { Text("AI模型") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                     colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                     modifier = Modifier
@@ -161,7 +161,7 @@ fun SettingsScreen() {
             
             Button(
                 onClick = {
-                    // Save settings using repository
+                    // 使用仓库保存设置
                     coroutineScope.launch {
                         repository.saveAISettings(apiUrl, apiKey, selectedModel)
                         isSaved = true
@@ -169,28 +169,28 @@ fun SettingsScreen() {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Save Settings")
+                Text("保存设置")
             }
             
             if (isSaved) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Settings saved successfully!",
+                    text = "设置保存成功！",
                     color = MaterialTheme.colorScheme.primary
                 )
             }
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            // Instructions
+            // 指导说明
             Text(
-                text = "API Configuration Help",
+                text = "API配置帮助",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)
             )
             
             Text(
-                text = "This app uses the DeepSeek API format for AI chat functionality. Set your API URL to 'https://api.deepseek.com' and enter your API key from the DeepSeek platform. Select the model you'd like to use from the dropdown menu.",
+                text = "此应用使用DeepSeek API格式实现AI聊天功能。将您的API地址设置为'https://api.deepseek.com'并输入您从DeepSeek平台获取的API密钥。从下拉菜单中选择您想使用的模型。",
                 style = MaterialTheme.typography.bodyMedium
             )
         }

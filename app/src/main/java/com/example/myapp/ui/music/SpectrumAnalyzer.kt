@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -13,6 +14,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.hypot
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Path
 
 private const val TAG_SPECTRUM = "SpectrumAnalyzer"
 
@@ -21,103 +25,221 @@ fun SpectrumAnalyzer(
     fftData: ByteArray?,
     modifier: Modifier = Modifier,
     barColor: Color = MaterialTheme.colorScheme.primary,
-    barCount: Int = 32, // Default to 32 bars
-    minBarHeight: Dp = 1.dp,
-    maxBarHeightScale: Float = 1.0f, // Scale factor for max bar height
-    smoothingFactor: Float = 0.15f // Smoothing factor (0.0 to 1.0)
+    barCount: Int = 32,
+    minBarHeight: Dp = 2.dp,
+    maxBarHeightScale: Float = 0.9f,
+    smoothingFactor: Float = 0.3f,  // 增加平滑因子使过渡更流畅
+    dynamicResponseSpeed: Float = 0.5f,  // 新增动态响应速度参数
+    isPlaying: Boolean = true  // 添加播放状态参数，默认值为true
 ) {
-    Log.v(TAG_SPECTRUM, "SpectrumAnalyzer recomposing. fftData size: ${fftData?.size}, barCount: $barCount")
     val previousMagnitudes = remember { mutableStateOf(FloatArray(barCount)) }
+    val peakMagnitudes = remember { mutableStateOf(FloatArray(barCount)) }
+    val decayRates = remember { mutableStateOf(FloatArray(barCount)) }
 
-    Canvas(modifier = modifier) {
-        val canvasWidth = size.width
-        val canvasHeight = size.height
-        
-        val barWidthWithSpacing = canvasWidth / barCount
-        val spacing = (barWidthWithSpacing * 0.2f).coerceAtMost(barWidthWithSpacing * 0.5f)
-        val barActualWidth = barWidthWithSpacing - spacing
+    // 当不播放时清除幅度值的效果
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying) {
+            // 暂停时清除先前的幅度和峰值
+            previousMagnitudes.value = FloatArray(barCount)
+            peakMagnitudes.value = FloatArray(barCount)
+        }
+    }
 
-        // Check if fftData is valid for processing
-        val isDataInvalid = fftData == null || fftData.size < barCount * 2
-        Log.d(TAG_SPECTRUM, "Checking data validity: isDataInvalid = $isDataInvalid. fftData.size: ${fftData?.size}, required for $barCount bars: ${barCount * 2}")
+    //记住高频的独立随机因子
+    val highFreqRandomFactors = remember { 
+        mutableStateOf(FloatArray(barCount) { 0.5f + (Math.random() * 0.5f).toFloat() })
+    }
 
-        if (isDataInvalid) {
-            Log.d(TAG_SPECTRUM, "Drawing placeholder bars because data is invalid.")
-            for (i in 0 until barCount) {
-                val x = i * barWidthWithSpacing + spacing / 2
-                drawRect(
-                    color = barColor.copy(alpha = 0.3f),
-                    topLeft = Offset(x = x, y = canvasHeight - minBarHeight.toPx()),
-                    size = Size(width = barActualWidth, height = minBarHeight.toPx())
+    // 生成频谱颜色
+    val colors = remember {
+        val baseColor = barColor
+        List(barCount) { index ->
+            val fraction = index.toFloat() / barCount
+            when {
+                fraction < 0.15f -> Color(
+                    red = baseColor.red * 0.9f,
+                    green = baseColor.green * 0.5f,
+                    blue = baseColor.blue * 0.9f,
+                    alpha = baseColor.alpha
+                )
+                fraction < 0.3f -> Color(
+                    red = baseColor.red,
+                    green = baseColor.green * 0.6f,
+                    blue = baseColor.blue * 0.8f,
+                    alpha = baseColor.alpha
+                )
+                fraction < 0.45f -> Color(
+                    red = baseColor.red * 0.8f,
+                    green = baseColor.green * 0.8f,
+                    blue = baseColor.blue,
+                    alpha = baseColor.alpha
+                )
+                fraction < 0.6f -> Color(
+                    red = baseColor.red * 0.7f,
+                    green = baseColor.green,
+                    blue = baseColor.blue * 0.9f,
+                    alpha = baseColor.alpha
+                )
+                fraction < 0.75f -> Color(
+                    red = baseColor.red * 0.8f,
+                    green = baseColor.green * 0.9f,
+                    blue = baseColor.blue * 0.7f,
+                    alpha = baseColor.alpha
+                )
+                fraction < 0.9f -> Color(
+                    red = baseColor.red * 0.9f,
+                    green = baseColor.green * 0.8f,
+                    blue = baseColor.blue * 0.6f,
+                    alpha = baseColor.alpha
+                )
+                else -> Color(
+                    red = baseColor.red,
+                    green = baseColor.green * 0.7f,
+                    blue = baseColor.blue * 0.8f,
+                    alpha = baseColor.alpha
                 )
             }
-            // Clear previous magnitudes if data is invalid to avoid stale display on next valid data
-            if (fftData == null) previousMagnitudes.value = FloatArray(barCount)
+        }
+    }
+
+    Canvas(modifier = modifier) {
+        // 如果没有FFT数据，直接返回不绘制任何内容
+        if (fftData == null || fftData.isEmpty() || !isPlaying) {
             return@Canvas
         }
-        
-        Log.v(TAG_SPECTRUM, "Processing valid FFT data to draw spectrum.")
+
+        val canvasWidth = size.width
+        val canvasHeight = size.height
+
+        // 调整柱状图间距
+        val barSpacingPercent = if (canvasWidth < 200.dp.toPx()) 0.05f else 0.08f
+        val barWidthWithSpacing = canvasWidth / barCount
+        val spacing = barWidthWithSpacing * barSpacingPercent
+        val barActualWidth = barWidthWithSpacing - spacing
+
         val newMagnitudes = FloatArray(barCount)
-        
-        // Number of complex FFT samples available from the Visualizer output.
-        // Each complex sample consists of a real and an imaginary part.
-        val numComplexFftSamples = fftData.size / 2
 
+        // 处理FFT数据
         for (i in 0 until barCount) {
-            // Determine the range of complex FFT samples to average for this bar.
-            // Ensure that float division is used for calculating indices to distribute samples evenly.
-            val fftSampleStartIndex = (i.toFloat() * numComplexFftSamples / barCount).toInt()
-            val fftSampleEndIndex = ((i + 1).toFloat() * numComplexFftSamples / barCount).toInt().coerceAtMost(numComplexFftSamples)
-            
-            var accumulatedMagnitude = 0f
-            var samplesCounted = 0
+            val startIndex = (i.toFloat() * fftData.size / barCount).toInt()
+            val endIndex = ((i + 1).toFloat() * fftData.size / barCount).toInt().coerceAtMost(fftData.size)
 
-            // Iterate over the designated range of complex FFT samples.
-            for (sampleIndex in fftSampleStartIndex until fftSampleEndIndex) {
-                val realPartIndex = sampleIndex * 2
-                val imagPartIndex = sampleIndex * 2 + 1
+            var sum = 0f
+            var count = 0
 
-                // Ensure indices are within the bounds of the fftData array.
-                if (imagPartIndex < fftData.size) {
-                    val real = fftData[realPartIndex].toFloat()
-                    val imag = fftData[imagPartIndex].toFloat()
-                    accumulatedMagnitude += hypot(real, imag)
-                    samplesCounted++
+            for (j in startIndex until endIndex) {
+                val value = fftData[j].toInt() and 0xFF
+                sum += value / 255f
+                count++
+            }
+
+            //压缩动态范围频率加权曲线
+            val frequencyWeightingCurve = when {
+                i < barCount * 0.1f -> 0.9f + (i / (barCount * 0.1f)) * 0.5f  // 超低音（从0.7f增加）
+                i < barCount * 0.25f -> 1.4f  // 低音（从1.1f增加）
+                i < barCount * 0.4f -> 1.3f   // 低中音（从1.0f增加）
+                i < barCount * 0.6f -> 1.2f   // 中音（从0.9f增加）
+                i < barCount * 0.75f -> 1.1f  // 中高音（从0.8f增加）
+                i < barCount * 0.9f -> 1.0f   // 高音（从0.7f增加）
+                else -> 0.9f                  // 超高音（从0.6f增加）
+            }
+
+            //对高频应用独立随机因子
+            val randomFactor = if (i >= barCount * 0.6f) {
+                //偶尔更新高频的随机因子
+                if (Math.random() < 0.05) {  // 5%的概率更新
+                    highFreqRandomFactors.value[i] = 0.3f + (Math.random() * 0.7f).toFloat()
                 }
+                highFreqRandomFactors.value[i]
+            } else {
+                1.0f  //对于低频/中频没有随机因子
+            }
+
+            //应用对数压缩以减小动态范围
+            val rawValue = if (count > 0) (sum / count) else 0f
+            val compressedValue = if (rawValue > 0) {
+                val logBase = 10f
+                val compressionFactor = 0.45f  // 从0.5f降低，以保留更多动态范围
+                (1f + compressionFactor * (Math.log10((1f + rawValue * (logBase - 1f)).toDouble()) / Math.log10(logBase.toDouble()))).toFloat() - 1f
+            } else {
+                0f
+            }
+
+            newMagnitudes[i] = compressedValue * frequencyWeightingCurve * randomFactor
+
+            // 更新峰值和衰减率
+            if (newMagnitudes[i] > peakMagnitudes.value[i]) {
+                peakMagnitudes.value[i] = newMagnitudes[i]
+                //更快的高频衰减
+                decayRates.value[i] = if (i >= barCount * 0.6f) {
+                    0.08f + newMagnitudes[i] * 0.25f
+                } else {
+                    0.05f + newMagnitudes[i] * 0.2f
+                }
+            } else {
+                peakMagnitudes.value[i] = (peakMagnitudes.value[i] - decayRates.value[i]).coerceAtLeast(0f)
+            }
+        }
+
+        // 应用平滑处理 - 高频使用较低的平滑因子
+        val smoothedMagnitudes = FloatArray(barCount) { i ->
+            val adjustedSmoothingFactor = if (i >= barCount * 0.6f) {
+                //对高频平滑较少（变化更快）
+                smoothingFactor * 1.5f
+            } else {
+                smoothingFactor
             }
             
-            val averageMagnitude = if (samplesCounted > 0) accumulatedMagnitude / samplesCounted else 0f
-            
-            // Normalize magnitude. The divisor (e.g., 256f) is empirical and may need adjustment
-            // based on the actual range of values from `hypot(real, imag)`.
-            // Max hypot for byte values (127, 127) is approx 180.
-            // If Visualizer captureSize is larger, this max magnitude increases.
-            // A typical FFT output value might be scaled by captureSize.
-            // For now, 256f is a placeholder.
-            val normalizedMagnitude = (averageMagnitude / 180f).coerceIn(0f, 1f) 
-            newMagnitudes[i] = normalizedMagnitude
+            previousMagnitudes.value[i] * (1 - adjustedSmoothingFactor) +
+                    newMagnitudes[i] * adjustedSmoothingFactor * dynamicResponseSpeed
         }
 
-        // Apply smoothing: current = previous * (1-alpha) + new * alpha
-        val smoothedMagnitudes = FloatArray(barCount) { i ->
-            previousMagnitudes.value[i] * (1 - smoothingFactor) + newMagnitudes[i] * smoothingFactor
-        }
-        previousMagnitudes.value = smoothedMagnitudes // Update for the next frame
+        previousMagnitudes.value = smoothedMagnitudes
 
-        Log.d(TAG_SPECTRUM, "Starting to draw ${smoothedMagnitudes.size} bars.")
-        // Draw the smoothed spectrum bars
-        smoothedMagnitudes.forEachIndexed { index, magnitude ->
-            val barHeightPx = (magnitude * canvasHeight * maxBarHeightScale).coerceAtLeast(minBarHeight.toPx())
-            val x = index * barWidthWithSpacing + spacing / 2 // Position includes spacing offset
+        // 绘制柱状图
+        for (i in 0 until barCount) {
+            // 使用峰值和当前值的混合来创建更生动的效果
+            val peakInfluence = if (i >= barCount * 0.6f) 0.2f else 0.3f  //对高频的峰值影响较小
+            val dynamicMagnitude = (smoothedMagnitudes[i] * (1f - peakInfluence) + peakMagnitudes.value[i] * peakInfluence)
+                .coerceIn(0f, 1f)
 
-            Log.v(TAG_SPECTRUM, "Bar $index: magnitude=$magnitude, barHeightPx=$barHeightPx, x=$x, width=$barActualWidth")
-            Log.v(TAG_SPECTRUM, "Bar $index - Color(A=${barColor.alpha}, R=${barColor.red}, G=${barColor.green}, B=${barColor.blue})")
-            
-            drawRect(
-                color = barColor,
-                topLeft = Offset(x = x, y = canvasHeight - barHeightPx),
-                size = Size(width = barActualWidth, height = barHeightPx)
+            val barHeight = (dynamicMagnitude * canvasHeight * maxBarHeightScale)
+                .coerceAtLeast(minBarHeight.toPx())
+
+            val x = i * barWidthWithSpacing + spacing / 2
+            val y = canvasHeight - barHeight
+
+            // 根据幅度和位置创建颜色
+            val barColorWithAlpha = colors[i].copy(
+                alpha = 0.4f + dynamicMagnitude * 0.6f
             )
+
+            // 绘制带圆角顶部的柱状图
+            if (barActualWidth > 3f) {
+                val cornerRadius = (barActualWidth * 0.5f).coerceAtMost(4f)
+                val path = Path().apply {
+                    moveTo(x, y + cornerRadius)
+                    quadraticBezierTo(x, y, x + cornerRadius, y)
+                    lineTo(x + barActualWidth - cornerRadius, y)
+                    quadraticBezierTo(x + barActualWidth, y, x + barActualWidth, y + cornerRadius)
+                    lineTo(x + barActualWidth, canvasHeight)
+                    lineTo(x, canvasHeight)
+                    lineTo(x, y + cornerRadius)
+                    close()
+                }
+
+                drawPath(
+                    path = path,
+                    color = barColorWithAlpha,
+                    style = Fill
+                )
+            } else {
+                drawRect(
+                    color = barColorWithAlpha,
+                    topLeft = Offset(x = x, y = y),
+                    size = Size(width = barActualWidth, height = barHeight)
+                )
+            }
         }
     }
 }

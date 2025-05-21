@@ -12,7 +12,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * Service for handling AI API requests using the DeepSeek API format
+ * 处理使用DeepSeek API格式的AI API请求的服务
  */
 class AIService {
     private val client = OkHttpClient.Builder()
@@ -22,13 +22,13 @@ class AIService {
         .build()
     
     /**
-     * Send a chat request to the DeepSeek API
+     * 向DeepSeek API发送聊天请求
      * 
-     * @param apiUrl The base URL of the API (default: https://api.deepseek.com)
-     * @param apiKey The API key for authentication
-     * @param model The model to use (e.g., "deepseek-chat")
-     * @param messages The chat messages
-     * @return The AI response or an error message
+     * @param apiUrl API的基础URL（默认：https://api.deepseek.com）
+     * @param apiKey 用于认证的API密钥
+     * @param model 使用的模型（例如，"deepseek-chat"）
+     * @param messages 聊天消息
+     * @return AI响应或错误消息
      */
     suspend fun sendChatRequest(
         apiUrl: String,
@@ -37,7 +37,7 @@ class AIService {
         messages: List<AIMessage>
     ): String = withContext(Dispatchers.IO) {
         try {
-            // Build the request JSON
+            // 构建请求JSON
             val jsonMessages = JSONArray()
             messages.forEach { message ->
                 val jsonMessage = JSONObject()
@@ -50,7 +50,7 @@ class AIService {
             requestJson.put("model", model)
             requestJson.put("messages", jsonMessages)
             
-            // Create the HTTP request
+            // 创建HTTP请求
             val requestBody = requestJson.toString()
                 .toRequestBody("application/json".toMediaTypeOrNull())
             
@@ -61,19 +61,19 @@ class AIService {
                 .post(requestBody)
                 .build()
             
-            // Execute the request
+            // 执行请求
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return@withContext "Error: ${response.code} - ${response.message}"
+                    return@withContext "错误: ${response.code} - ${response.message}"
                 }
                 
-                // Parse the response
-                val responseBody = response.body?.string() ?: return@withContext "Error: Empty response"
+                // 解析响应
+                val responseBody = response.body?.string() ?: return@withContext "错误: 空响应"
                 val jsonResponse = JSONObject(responseBody)
                 
                 if (jsonResponse.has("error")) {
                     val error = jsonResponse.getJSONObject("error")
-                    return@withContext "API Error: ${error.optString("message", "Unknown error")}"
+                    return@withContext "API错误: ${error.optString("message", "未知错误")}"
                 }
                 
                 val choices = jsonResponse.getJSONArray("choices")
@@ -82,19 +82,19 @@ class AIService {
                     val message = firstChoice.getJSONObject("message")
                     return@withContext message.getString("content")
                 } else {
-                    return@withContext "Error: No response content"
+                    return@withContext "错误: 没有响应内容"
                 }
             }
         } catch (e: IOException) {
-            return@withContext "Network error: ${e.message}"
+            return@withContext "网络错误: ${e.message}"
         } catch (e: Exception) {
-            return@withContext "Error: ${e.message}"
+            return@withContext "错误: ${e.message}"
         }
     }
 }
 
 /**
- * Data class representing a chat message in the DeepSeek API format
+ * 表示DeepSeek API格式的聊天消息的数据类
  */
 data class AIMessage(
     val role: String,

@@ -50,7 +50,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.example.myapp.ui.music.SpectrumAnalyzer
@@ -79,37 +78,37 @@ fun MusicDetailScreen(
     val duration by musicPlayerManager.duration.collectAsState()
     val playbackMode by musicPlayerManager.playbackMode.collectAsState()
     val fftData by musicPlayerManager.fftData.collectAsState()
-    
-    // State for the slider to avoid constant updates
+
+    //滑块的状态，以避免不断更新
     var sliderPosition by remember { mutableStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
-    
-    // Horizontal scroll state for song title
+
+    //滑块的状态，以避免不断更新
     val titleScrollState = rememberScrollState()
-    
-    // Auto-scroll for long titles
+
+    //自动滚动长标题
     LaunchedEffect(musicFile.title, titleScrollState.maxValue) {
         if (titleScrollState.maxValue > 0) {
-            // Only auto-scroll if the title is longer than available space
-            delay(1500) // Initial delay before scrolling
+            // 仅当标题长度超过可用空间时才自动滚动
+            delay(1500) // 滚动前的初始延迟
             titleScrollState.animateScrollTo(titleScrollState.maxValue)
-            delay(1500) // Pause at the end
+            delay(1500) // 在末尾暂停
             titleScrollState.animateScrollTo(0)
         }
     }
     
-    // Update slider position when not dragging
+    // 当不拖动时更新滑块位置
     LaunchedEffect(currentPosition, duration, isPlaying) {
         if (!isDragging && duration > 0) {
             sliderPosition = currentPosition.toFloat() / duration.coerceAtLeast(1)
         }
     }
     
-    // Polling to update position during playback
+    // 播放期间轮询更新位置
     LaunchedEffect(isPlaying) {
         if (isPlaying) {
             while (true) {
-                delay(500) // Update every 500ms for smoother UI
+                delay(500) // 每500毫秒更新一次，使UI更流畅
                 if (!isDragging && duration > 0) {
                     sliderPosition = currentPosition.toFloat() / duration.coerceAtLeast(1)
                 }
@@ -117,32 +116,15 @@ fun MusicDetailScreen(
         }
     }
     
-    // Sample lyrics (would be fetched from a real source)
-    val lyrics = remember {
-        """
-        This is where the lyrics would appear
-        Line by line as the song plays
-        
-        In a real app, these would be synced
-        To the current playback position
-        
-        And would scroll automatically
-        As the song progresses through verses
-        
-        You could highlight the current line
-        To make it easier to follow along
-        """.trimIndent()
-    }
-    
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Now Playing") },
+                title = { Text("正在播放") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "返回"
                         )
                     }
                 }
@@ -161,54 +143,66 @@ fun MusicDetailScreen(
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Album artwork
+                // 专辑封面
                 Card(
                     modifier = Modifier
                         .size(240.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(8.dp)),
                 ) {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(8.dp) // 稍微多一点的内边距
+                            .clip(RoundedCornerShape(4.dp)), // 内部边角也是圆角
                         contentAlignment = Alignment.Center
                     ) {
-                        // Image(
-                        //     painter = painterResource(id = R.drawable.music_placeholder),
-                        //     contentDescription = null,
-                        //     modifier = Modifier.fillMaxSize(),
-                        //     contentScale = ContentScale.Crop
-                        // )
+                        // 频谱背景
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {}
+                        
+                        // 频谱可视化
                         SpectrumAnalyzer(
                             fftData = fftData,
-                            modifier = Modifier.fillMaxSize(),
-                            barCount = 32,
-                            barColor = MaterialTheme.colorScheme.secondary
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 4.dp, vertical = 2.dp), // 添加内部填充
+                            barCount = 50, // 更多频率分辨率的条
+                            barColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                            maxBarHeightScale = 0.98f, // 从0.95f增加以填充更多盒子
+                            minBarHeight = 4.dp, // 从2.dp增加以使小条更加可见
+                            smoothingFactor = 0.3f, // 更高的平滑因子
+                            dynamicResponseSpeed = 0.7f, // 对变化的更快响应
+                            isPlaying = isPlaying // 传递isPlaying状态控制可视化
                         )
                     }
                 }
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                // Song title container with fixed width
+                // 歌曲标题容器，固定宽度
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(0.9f) // Use 90% of available width
+                        .fillMaxWidth(0.9f) // 使用90%的可用宽度
                         .align(Alignment.CenterHorizontally),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Scrollable song title
+                    // 可滚动的歌曲标题
                     Text(
                         text = musicFile.title,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.horizontalScroll(titleScrollState),
-                        // No maxLines or overflow to allow scrolling
+                        // 没有maxLines或overflow以允许滚动
                     )
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                // Artist name (with ellipsis for long text)
+                // 艺术家名称（长文本用省略号）
                 Text(
                     text = musicFile.artist,
                     style = MaterialTheme.typography.bodyLarge,
@@ -220,7 +214,7 @@ fun MusicDetailScreen(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Playback mode selector
+                // 播放模式选择器
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
@@ -255,11 +249,11 @@ fun MusicDetailScreen(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Playback progress
+                // 播放进度
                 Column(
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Progress slider
+                    // 进度滑块
                     Slider(
                         value = sliderPosition,
                         onValueChange = { 
@@ -268,7 +262,7 @@ fun MusicDetailScreen(
                         },
                         onValueChangeFinished = {
                             isDragging = false
-                            // Convert slider value to position in milliseconds
+                            // 将滑块值转换为毫秒位置
                             val newPosition = (sliderPosition * duration).toInt()
                             musicPlayerManager.seekTo(newPosition)
                         },
@@ -279,19 +273,19 @@ fun MusicDetailScreen(
                         )
                     )
                     
-                    // Time display
+                    // 时间显示
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        // Current position
+                        // 当前位置
                         Text(
                             text = formatDuration(currentPosition.toLong()),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                         )
                         
-                        // Total duration
+                        // 总时长
                         Text(
                             text = formatDuration(duration.toLong()),
                             style = MaterialTheme.typography.bodyMedium,
@@ -302,25 +296,25 @@ fun MusicDetailScreen(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Playback controls
+                // 播放控制
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Skip previous
+                    // 上一首
                     IconButton(
                         onClick = { musicPlayerManager.playPreviousSong() },
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
-                            contentDescription = "Previous",
+                            contentDescription = "上一首",
                             modifier = Modifier.size(32.dp)
                         )
                     }
                     
-                    // Play/Pause
+                    // 播放/暂停
                     IconButton(
                         onClick = { musicPlayerManager.playPause() },
                         modifier = Modifier.size(64.dp)
@@ -328,19 +322,19 @@ fun MusicDetailScreen(
                         Icon(
                             imageVector = if (isPlaying) 
                                 Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            contentDescription = if (isPlaying) "暂停" else "播放",
                             modifier = Modifier.size(48.dp)
                         )
                     }
                     
-                    // Skip next
+                    // 下一首
                     IconButton(
                         onClick = { musicPlayerManager.playNextSong() },
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.SkipNext,
-                            contentDescription = "Next",
+                            contentDescription = "下一首",
                             modifier = Modifier.size(32.dp)
                         )
                     }
@@ -352,7 +346,7 @@ fun MusicDetailScreen(
     }
 }
 
-// Helper function to format duration
+// 格式化时长的辅助函数
 fun formatDuration(durationMs: Long): String {
     val totalSeconds = durationMs / 1000
     val minutes = totalSeconds / 60

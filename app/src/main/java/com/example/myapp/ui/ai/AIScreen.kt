@@ -41,7 +41,7 @@ import com.example.myapp.api.AIService
 import com.example.myapp.data.AppRepository
 import kotlinx.coroutines.launch
 
-// Data class for chat messages
+// 聊天消息的数据类
 data class ChatMessage(
     val text: String,
     val isFromUser: Boolean,
@@ -55,10 +55,10 @@ fun AIScreen() {
     val aiService = remember { AIService() }
     val coroutineScope = rememberCoroutineScope()
     
-    // Get chat history and settings from repository
+    // 从仓库获取聊天历史和设置
     val chatHistory by repository.chatHistory.collectAsState(initial = emptyList())
     val apiUrl by repository.apiUrl.collectAsState(initial = "https://api.deepseek.com")
-    val apiKey by repository.apiKey.collectAsState(initial = "sk-12af10b0251c4b978c458d3d8d4a01d7")
+    val apiKey by repository.apiKey.collectAsState(initial = "sk-8e1a2e34388048cd94e168264cfd138d")
     val model by repository.aiModel.collectAsState(initial = "deepseek-chat")
     
     var messages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
@@ -66,14 +66,14 @@ fun AIScreen() {
     var isLoading by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     
-    // Load chat history when the screen is first displayed
+    // 首次显示屏幕时加载聊天历史
     LaunchedEffect(chatHistory) {
         if (messages.isEmpty() && chatHistory.isNotEmpty()) {
             messages = chatHistory
         }
     }
     
-    // Scroll to bottom when messages change
+    // 消息变化时滚动到底部
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
@@ -87,7 +87,7 @@ fun AIScreen() {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Chat messages
+            // 聊天消息
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -100,7 +100,7 @@ fun AIScreen() {
                     Spacer(modifier = Modifier.height(8.dp))
                 }
                 
-                // Show loading indicator
+                // 显示加载指示器
                 if (isLoading) {
                     item {
                         LoadingBubble()
@@ -109,7 +109,7 @@ fun AIScreen() {
                 }
             }
             
-            // Input field
+            // 输入框
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -119,7 +119,7 @@ fun AIScreen() {
                 OutlinedTextField(
                     value = inputText,
                     onValueChange = { inputText = it },
-                    placeholder = { Text("Ask AI something...") },
+                    placeholder = { Text("向AI提问...") },
                     modifier = Modifier.weight(1f),
                     enabled = !isLoading
                 )
@@ -129,42 +129,42 @@ fun AIScreen() {
                 IconButton(
                     onClick = {
                         if (inputText.isNotBlank() && !isLoading) {
-                            // Add user message
+                            // 添加用户消息
                             val userMessage = ChatMessage(inputText, true)
                             val updatedMessages = messages + userMessage
                             messages = updatedMessages
                             
-                            // Save chat history
+                            // 保存聊天历史
                             coroutineScope.launch {
                                 repository.saveChatHistory(updatedMessages)
                             }
                             
-                            // Get user input and clear the input field
+                            // 获取用户输入并清空输入框
                             val userInput = inputText
                             inputText = ""
                             
-                            // Mark as loading
+                            // 标记为正在加载
                             isLoading = true
                             
-                            // Call the AI API
+                            // 调用AI API
                             coroutineScope.launch {
-                                // Create message list for API
+                                // 为API创建消息列表
                                 val aiMessages = mutableListOf<AIMessage>()
                                 
-                                // Add system message
+                                // 添加系统消息
                                 aiMessages.add(AIMessage(
                                     role = AIMessage.ROLE_SYSTEM,
-                                    content = "You are a helpful assistant."
+                                    content = "你是一个有帮助的助手。"
                                 ))
                                 
-                                // Add conversation history
+                                // 添加对话历史
                                 updatedMessages.forEach { message ->
                                     val role = if (message.isFromUser) AIMessage.ROLE_USER else AIMessage.ROLE_ASSISTANT
                                     aiMessages.add(AIMessage(role, message.text))
                                 }
                                 
                                 try {
-                                    // Call API
+                                    // 调用API
                                     val response = aiService.sendChatRequest(
                                         apiUrl = apiUrl,
                                         apiKey = apiKey,
@@ -172,17 +172,17 @@ fun AIScreen() {
                                         messages = aiMessages
                                     )
                                     
-                                    // Add AI response
+                                    // 添加AI响应
                                     val aiMessage = ChatMessage(response, false)
                                     val finalMessages = updatedMessages + aiMessage
                                     messages = finalMessages
                                     
-                                    // Save updated chat history
+                                    // 保存更新的聊天历史
                                     repository.saveChatHistory(finalMessages)
                                 } catch (e: Exception) {
-                                    // Handle error
+                                    // 处理错误
                                     val errorMessage = ChatMessage(
-                                        "Error: ${e.message ?: "Unknown error"}. Please check your API settings.",
+                                        "错误: ${e.message ?: "未知错误"}。请检查您的API设置。",
                                         false
                                     )
                                     messages = updatedMessages + errorMessage
@@ -197,7 +197,7 @@ fun AIScreen() {
                 ) {
                     Icon(
                         imageVector = Icons.Default.Send,
-                        contentDescription = "Send"
+                        contentDescription = "发送"
                     )
                 }
             }
@@ -251,7 +251,7 @@ fun LoadingBubble() {
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "AI is thinking...",
+                    text = "AI正在思考...",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }

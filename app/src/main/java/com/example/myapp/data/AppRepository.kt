@@ -13,10 +13,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-// Extension function for DataStore
+// DataStore扩展函数
 val Context.dataStore by preferencesDataStore(name = "appSettings")
 
-// Preference Keys
+// 偏好设置键
 object PreferenceKeys {
     val AI_API_URL = stringPreferencesKey("ai_api_url")
     val AI_API_KEY = stringPreferencesKey("ai_api_key")
@@ -27,7 +27,7 @@ object PreferenceKeys {
 
 class AppRepository(private val context: Context) {
     
-    // AI Settings
+    // AI设置
     suspend fun saveAISettings(apiUrl: String, apiKey: String, model: String) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.AI_API_URL] = apiUrl
@@ -41,14 +41,14 @@ class AppRepository(private val context: Context) {
     }
     
     val apiKey: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PreferenceKeys.AI_API_KEY] ?: "sk-12af10b0251c4b978c458d3d8d4a01d7"
+        preferences[PreferenceKeys.AI_API_KEY] ?: "sk-8e1a2e34388048cd94e168264cfd138d"
     }
     
     val aiModel: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[PreferenceKeys.AI_MODEL] ?: "deepseek-chat"
     }
     
-    // Chat History
+    // 聊天历史
     suspend fun saveChatHistory(chatMessages: List<ChatMessage>) {
         val jsonArray = JSONArray()
         
@@ -87,7 +87,7 @@ class AppRepository(private val context: Context) {
         }
     }
     
-    // Imported Music
+    // 导入的音乐
     suspend fun saveImportedMusic(musicFiles: List<MusicFile>) {
         val jsonArray = JSONArray()
         
@@ -121,7 +121,7 @@ class AppRepository(private val context: Context) {
                 val duration = jsonObject.getLong("duration")
                 val uriString = jsonObject.getString("uri")
                 
-                // Check if the file still exists
+                // 检查文件是否仍然存在
                 val uri = Uri.parse(uriString)
                 val file = File(uri.path ?: "")
                 

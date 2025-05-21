@@ -7,12 +7,12 @@ import com.example.myapp.data.AppRepository
 import com.example.myapp.music.MusicPlayerManager
 
 /**
- * Provides application-wide dependencies and manages state persistence
+ * 提供应用范围的依赖项并管理状态持久化
  */
 object AppModule {
 
     /**
-     * Remember a singleton instance of MusicPlayerManager to ensure it persists across navigation and configuration changes
+     * 记住MusicPlayerManager的单例实例，确保它在导航和配置更改中保持不变
      */
     @Composable
     fun provideMusicPlayerManager(context: Context): MusicPlayerManager {
@@ -20,7 +20,7 @@ object AppModule {
     }
 
     /**
-     * Remember a singleton instance of AppRepository to ensure it persists across navigation and configuration changes
+     * 记住AppRepository的单例实例，确保它在导航和配置更改中保持不变
      */
     @Composable
     fun provideAppRepository(context: Context): AppRepository {

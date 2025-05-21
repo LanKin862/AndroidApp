@@ -68,37 +68,37 @@ fun MusicPlayerApp() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
-    // Create persistent instances that will be shared across screens
+    // 创建在屏幕之间共享的持久实例
     val musicPlayerManager = AppModule.provideMusicPlayerManager(context)
     val repository = AppModule.provideAppRepository(context)
     
-    // Observe current song information
+    // 观察当前歌曲信息
     val currentSongTitle by musicPlayerManager.currentSongTitle.collectAsState()
     val isPlaying by musicPlayerManager.isPlaying.collectAsState()
     
-    // Handle lifecycle events for the music player
+    // 处理音乐播放器的生命周期事件
     val currentMusicPlayerManager = rememberUpdatedState(musicPlayerManager)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
-                    // Pause playback when app goes to background
+                    // 当应用进入后台时暂停播放
                     if (currentMusicPlayerManager.value.isPlaying.value) {
                         currentMusicPlayerManager.value.playPause()
                     }
                 }
                 Lifecycle.Event.ON_DESTROY -> {
-                    // Release resources when app is destroyed
+                    // 当应用被销毁时释放资源
                     currentMusicPlayerManager.value.release()
                 }
-                else -> { /* Ignore other events */ }
+                else -> { /* 忽略其他事件 */ }
             }
         }
         
-        // Add the observer to the lifecycle
+        // 将观察者添加到生命周期
         lifecycleOwner.lifecycle.addObserver(observer)
         
-        // When the effect leaves the Composition, remove the observer
+        // 当效果离开组合时，移除观察者
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
@@ -133,7 +133,7 @@ fun MusicPlayerApp() {
             modifier = Modifier.padding(innerPadding),
             color = MaterialTheme.colorScheme.background
         ) {
-            // Navigation Content
+            // 导航内容
             NavHost(navController, startDestination = Screen.Music.route) {
                 composable(Screen.Music.route) { 
                     MusicScreen(
@@ -141,8 +141,8 @@ fun MusicPlayerApp() {
                         repository = repository
                     )
                 }
-//                composable(Screen.AI.route) { AIScreen() }
-//                composable(Screen.Settings.route) { SettingsScreen() }
+                composable(Screen.AI.route) { AIScreen() }
+                composable(Screen.Settings.route) { SettingsScreen() }
             }
         }
     }
