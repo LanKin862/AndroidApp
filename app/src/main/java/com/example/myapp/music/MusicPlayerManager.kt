@@ -194,6 +194,7 @@ class MusicPlayerManager(private val context: Context) {
                             Log.v(TAG, "onFftDataCapture called. FFT data size: ${fft?.size}")
                             _fftData.value = fft?.clone()
                             Log.v(TAG, "_fftData updated. New size: ${_fftData.value?.size}")
+                            Log.v(TAG, "FFT data content hash: ${fft?.contentHashCode()}")
                         }
                     }, Visualizer.getMaxCaptureRate() / 2, false, true)
                     enabled = true
@@ -250,24 +251,34 @@ class MusicPlayerManager(private val context: Context) {
     
     // Track playback position
     private fun startPositionTracking() {
-        // Stop any existing tracking thread first
         stopPositionTracking()
-        
-        // Create and start a new tracking thread
         positionTrackingThread = Thread {
+            var lastVisualizerLogTime = 0L // Moved inside thread's scope
+            val visualizerLogInterval = 3000L // Explicitly Long
+
             try {
                 while (!Thread.currentThread().isInterrupted && mediaPlayer != null) {
                     mediaPlayer?.let {
                         if (it.isPlaying) {
                             _currentPosition.value = it.currentPosition
+
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastVisualizerLogTime > visualizerLogInterval) {
+                                if (visualizer != null) { // Check visualizer is not null
+                                    Log.d(TAG, "Position tracking: Visualizer.getEnabled(): ${visualizer?.getEnabled()}")
+                                } else {
+                                    Log.d(TAG, "Position tracking: Visualizer is null.")
+                                }
+                                lastVisualizerLogTime = currentTime
+                            }
                         }
                     }
-                    Thread.sleep(1000)
+                    Thread.sleep(1000) // Existing sleep
                 }
             } catch (e: InterruptedException) {
-                // Thread was interrupted, exit gracefully
+                Log.d(TAG, "Position tracking thread interrupted.")
             } catch (e: Exception) {
-                // Handle other exceptions
+                Log.e(TAG, "Exception in position tracking thread", e)
             }
         }.apply {
             start()

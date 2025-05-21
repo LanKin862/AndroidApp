@@ -104,10 +104,14 @@ fun SpectrumAnalyzer(
         }
         previousMagnitudes.value = smoothedMagnitudes // Update for the next frame
 
+        Log.d(TAG_SPECTRUM, "Starting to draw ${smoothedMagnitudes.size} bars.")
         // Draw the smoothed spectrum bars
         smoothedMagnitudes.forEachIndexed { index, magnitude ->
             val barHeightPx = (magnitude * canvasHeight * maxBarHeightScale).coerceAtLeast(minBarHeight.toPx())
             val x = index * barWidthWithSpacing + spacing / 2 // Position includes spacing offset
+
+            Log.v(TAG_SPECTRUM, "Bar $index: magnitude=$magnitude, barHeightPx=$barHeightPx, x=$x, width=$barActualWidth")
+            Log.v(TAG_SPECTRUM, "Bar $index - Color(A=${barColor.alpha}, R=${barColor.red}, G=${barColor.green}, B=${barColor.blue})")
             
             drawRect(
                 color = barColor,
