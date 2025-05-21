@@ -2,6 +2,7 @@ package com.example.myapp.music
 
 import android.content.Context
 import android.media.MediaPlayer
+import android.media.audiofx.Visualizer
 import android.net.Uri
 import com.example.myapp.ui.music.MusicFile
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,11 @@ class MusicPlayerManager(private val context: Context) {
     // Song duration
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
+
+    private val _fftData = MutableStateFlow<ByteArray?>(null)
+    val fftData: StateFlow<ByteArray?> = _fftData.asStateFlow()
+
+    private var visualizer: Visualizer? = null
     
     // Playlist management
     private val _playlist = MutableStateFlow<List<MusicFile>>(emptyList())
@@ -142,6 +148,7 @@ class MusicPlayerManager(private val context: Context) {
     // Play a song from a URI
     fun playSong(uri: Uri, title: String, artist: String) {
         // Release any existing MediaPlayer
+        releaseVisualizer()
         mediaPlayer?.release()
         stopPositionTracking()
         
@@ -168,6 +175,25 @@ class MusicPlayerManager(private val context: Context) {
         
         // Start position tracking
         startPositionTracking()
+
+        val sessionId = mediaPlayer?.audioSessionId
+        if (sessionId != null && sessionId != 0) {
+            try {
+                visualizer = Visualizer(sessionId).apply {
+                    captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(512) // Use max available or 512
+                    setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
+                        override fun onWaveFormDataCapture(viz: Visualizer?, waveform: ByteArray?, samplingRate: Int) {}
+                        override fun onFftDataCapture(viz: Visualizer?, fft: ByteArray?, samplingRate: Int) {
+                            _fftData.value = fft?.clone() // Update StateFlow with a copy of FFT data
+                        }
+                    }, Visualizer.getMaxCaptureRate() / 2, false, true) // Capture FFT
+                    enabled = true
+                }
+            } catch (e: Exception) {
+                // Log or handle visualizer initialization error
+                _fftData.value = null // Ensure data is null on error
+            }
+        }
     }
     
     // Play/Pause toggle
@@ -177,16 +203,19 @@ class MusicPlayerManager(private val context: Context) {
                 it.pause()
                 _isPlaying.value = false
                 stopPositionTracking()
+                visualizer?.enabled = false
             } else {
                 it.start()
                 _isPlaying.value = true
                 startPositionTracking()
+                visualizer?.enabled = true
             }
         }
     }
     
     // Stop playback
     fun stop() {
+        releaseVisualizer()
         mediaPlayer?.let {
             it.stop()
             it.release()
@@ -240,11 +269,21 @@ class MusicPlayerManager(private val context: Context) {
     
     // Clean up resources when done
     fun release() {
+        releaseVisualizer()
         mediaPlayer?.release()
         mediaPlayer = null
         _isPlaying.value = false
         _currentSongTitle.value = null
         _currentSongArtist.value = null
         stopPositionTracking()
+    }
+
+    private fun releaseVisualizer() {
+        visualizer?.apply {
+            enabled = false
+            release()
+        }
+        visualizer = null
+        _fftData.value = null // Clear FFT data
     }
 } 

@@ -50,9 +50,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import com.example.myapp.ui.music.SpectrumAnalyzer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -77,6 +78,7 @@ fun MusicDetailScreen(
     val currentPosition by musicPlayerManager.currentPosition.collectAsState()
     val duration by musicPlayerManager.duration.collectAsState()
     val playbackMode by musicPlayerManager.playbackMode.collectAsState()
+    val fftData by musicPlayerManager.fftData.collectAsState()
     
     // State for the slider to avoid constant updates
     var sliderPosition by remember { mutableStateOf(0f) }
@@ -169,12 +171,17 @@ fun MusicDetailScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        // Use our music placeholder drawable
-                        Image(
-                            painter = painterResource(id = R.drawable.music_placeholder),
-                            contentDescription = null,
+                        // Image(
+                        //     painter = painterResource(id = R.drawable.music_placeholder),
+                        //     contentDescription = null,
+                        //     modifier = Modifier.fillMaxSize(),
+                        //     contentScale = ContentScale.Crop
+                        // )
+                        SpectrumAnalyzer(
+                            fftData = fftData,
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                            barCount = 32,
+                            barColor = MaterialTheme.colorScheme.secondary
                         )
                     }
                 }
