@@ -1,5 +1,6 @@
 package com.example.myapp.ui.music
 
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -13,6 +14,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.hypot
 
+private const val TAG_SPECTRUM = "SpectrumAnalyzer"
+
 @Composable
 fun SpectrumAnalyzer(
     fftData: ByteArray?,
@@ -23,6 +26,7 @@ fun SpectrumAnalyzer(
     maxBarHeightScale: Float = 1.0f, // Scale factor for max bar height
     smoothingFactor: Float = 0.15f // Smoothing factor (0.0 to 1.0)
 ) {
+    Log.v(TAG_SPECTRUM, "SpectrumAnalyzer recomposing. fftData size: ${fftData?.size}, barCount: $barCount")
     val previousMagnitudes = remember { mutableStateOf(FloatArray(barCount)) }
 
     Canvas(modifier = modifier) {
@@ -34,7 +38,11 @@ fun SpectrumAnalyzer(
         val barActualWidth = barWidthWithSpacing - spacing
 
         // Check if fftData is valid for processing
-        if (fftData == null || fftData.size < barCount * 2) { // Minimum data needed for pairs
+        val isDataInvalid = fftData == null || fftData.size < barCount * 2
+        Log.d(TAG_SPECTRUM, "Checking data validity: isDataInvalid = $isDataInvalid. fftData.size: ${fftData?.size}, required for $barCount bars: ${barCount * 2}")
+
+        if (isDataInvalid) {
+            Log.d(TAG_SPECTRUM, "Drawing placeholder bars because data is invalid.")
             for (i in 0 until barCount) {
                 val x = i * barWidthWithSpacing + spacing / 2
                 drawRect(
@@ -47,7 +55,8 @@ fun SpectrumAnalyzer(
             if (fftData == null) previousMagnitudes.value = FloatArray(barCount)
             return@Canvas
         }
-
+        
+        Log.v(TAG_SPECTRUM, "Processing valid FFT data to draw spectrum.")
         val newMagnitudes = FloatArray(barCount)
         
         // Number of complex FFT samples available from the Visualizer output.

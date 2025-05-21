@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.media.audiofx.Visualizer
 import android.net.Uri
+import android.util.Log
 import com.example.myapp.ui.music.MusicFile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +15,8 @@ enum class PlaybackMode {
     SEQUENTIAL,
     RANDOM
 }
+
+private const val TAG = "MusicPlayerManager"
 
 class MusicPlayerManager(private val context: Context) {
     
@@ -176,23 +179,33 @@ class MusicPlayerManager(private val context: Context) {
         // Start position tracking
         startPositionTracking()
 
+        // Visualizer setup
         val sessionId = mediaPlayer?.audioSessionId
+        Log.d(TAG, "AudioSessionId: $sessionId")
+
         if (sessionId != null && sessionId != 0) {
             try {
+                Log.d(TAG, "Attempting to initialize Visualizer with audioSessionId: $sessionId")
                 visualizer = Visualizer(sessionId).apply {
-                    captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(512) // Use max available or 512
+                    captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(512)
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
                         override fun onWaveFormDataCapture(viz: Visualizer?, waveform: ByteArray?, samplingRate: Int) {}
                         override fun onFftDataCapture(viz: Visualizer?, fft: ByteArray?, samplingRate: Int) {
-                            _fftData.value = fft?.clone() // Update StateFlow with a copy of FFT data
+                            Log.v(TAG, "onFftDataCapture called. FFT data size: ${fft?.size}")
+                            _fftData.value = fft?.clone()
+                            Log.v(TAG, "_fftData updated. New size: ${_fftData.value?.size}")
                         }
-                    }, Visualizer.getMaxCaptureRate() / 2, false, true) // Capture FFT
+                    }, Visualizer.getMaxCaptureRate() / 2, false, true)
                     enabled = true
                 }
+                Log.i(TAG, "Visualizer initialized successfully for audioSessionId: $sessionId. Capture size: ${visualizer?.captureSize}")
             } catch (e: Exception) {
-                // Log or handle visualizer initialization error
-                _fftData.value = null // Ensure data is null on error
+                Log.e(TAG, "Error initializing Visualizer for audioSessionId: $sessionId", e)
+                _fftData.value = null
             }
+        } else {
+            Log.w(TAG, "Cannot initialize Visualizer: Invalid audioSessionId ($sessionId)")
+            _fftData.value = null // Ensure data is null if session ID is invalid
         }
     }
     
