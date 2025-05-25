@@ -1,5 +1,6 @@
 package com.example.myapp.ui.music
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,12 +20,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.DonutLarge
 import androidx.compose.material.icons.filled.Explicit
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Card
@@ -52,7 +57,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import com.example.myapp.ui.music.SpectrumAnalyzer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -62,8 +66,12 @@ import androidx.navigation.NavController
 import com.example.myapp.R
 import com.example.myapp.music.MusicPlayerManager
 import com.example.myapp.music.PlaybackMode
+import com.example.myapp.ui.music.VisualizationMode
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.ui.unit.Dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +86,9 @@ fun MusicDetailScreen(
     val duration by musicPlayerManager.duration.collectAsState()
     val playbackMode by musicPlayerManager.playbackMode.collectAsState()
     val fftData by musicPlayerManager.fftData.collectAsState()
+
+    // 添加可视化模式状态
+    var visualizationMode by remember { mutableStateOf(VisualizationMode.BARS) }
 
     //滑块的状态，以避免不断更新
     var sliderPosition by remember { mutableStateOf(0f) }
@@ -143,10 +154,11 @@ fun MusicDetailScreen(
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 专辑封面
+                // 频谱图视图（替换专辑封面）
                 Card(
                     modifier = Modifier
-                        .size(240.dp)
+                        .fillMaxWidth(0.9f)
+                        .aspectRatio(1.3f)
                         .clip(RoundedCornerShape(8.dp)),
                 ) {
                     Box(
@@ -156,31 +168,135 @@ fun MusicDetailScreen(
                             .clip(RoundedCornerShape(4.dp)), // 内部边角也是圆角
                         contentAlignment = Alignment.Center
                     ) {
-                        // 频谱背景
-                        Surface(
-                            modifier = Modifier.fillMaxSize(),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {}
-                        
-                        // 频谱可视化
-                        SpectrumAnalyzer(
+                        // 使用新的频谱图视图替换图像，添加可视化模式参数
+                        SpectrogramView(
                             fftData = fftData,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 4.dp, vertical = 2.dp), // 添加内部填充
-                            barCount = 50, // 更多频率分辨率的条
-                            barColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                            maxBarHeightScale = 0.98f, // 从0.95f增加以填充更多盒子
-                            minBarHeight = 4.dp, // 从2.dp增加以使小条更加可见
-                            smoothingFactor = 0.3f, // 更高的平滑因子
-                            dynamicResponseSpeed = 0.7f, // 对变化的更快响应
-                            isPlaying = isPlaying // 传递isPlaying状态控制可视化
+                            isPlaying = isPlaying,
+                            modifier = Modifier.fillMaxSize(),
+                            mode = visualizationMode
                         )
+                        
+                        // 添加调试信息
+                        LaunchedEffect(fftData) {
+                            if (fftData.isNotEmpty()) {
+                                Log.d("MusicDetailScreen", "收到FFT数据，长度: ${fftData.size}")
+                            }
+                        }
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(24.dp))
+                // 可视化模式选择器
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    IconButton(
+                        onClick = { visualizationMode = VisualizationMode.BARS },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.BarChart,
+                            contentDescription = "条形图",
+                            tint = if (visualizationMode == VisualizationMode.BARS) 
+                                MaterialTheme.colorScheme.primary 
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        if (visualizationMode == VisualizationMode.BARS) {
+                            androidx.compose.material3.TooltipBox(
+                                positionProvider = androidx.compose.material3.TooltipDefaults.rememberPlainTooltipPositionProvider(
+                                    spacingBetweenTooltipAndAnchor = 4.dp
+                                ),
+                                tooltip = {
+                                    androidx.compose.material3.Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(4.dp)
+                                    )  {
+                                        Text(
+                                            "条形频谱图",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                },
+                                state = androidx.compose.material3.rememberTooltipState()
+                            ) {
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.width(16.dp))
+                    
+                    IconButton(
+                        onClick = { visualizationMode = VisualizationMode.WAVE },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ShowChart,
+                            contentDescription = "波形图",
+                            tint = if (visualizationMode == VisualizationMode.WAVE) 
+                                MaterialTheme.colorScheme.primary 
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        if (visualizationMode == VisualizationMode.WAVE) {
+                            androidx.compose.material3.TooltipBox(
+                                positionProvider = androidx.compose.material3.TooltipDefaults.rememberPlainTooltipPositionProvider(
+                                    spacingBetweenTooltipAndAnchor = 4.dp
+                                ),
+                                tooltip = {
+                                    androidx.compose.material3.Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            "波形频谱图",
+                                            modifier = Modifier.padding(8.dp),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                },
+                                state = rememberTooltipState()
+                            ) {}
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.width(16.dp))
+                    
+                    IconButton(
+                        onClick = { visualizationMode = VisualizationMode.CIRCULAR },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DonutLarge,
+                            contentDescription = "环形图",
+                            tint = if (visualizationMode == VisualizationMode.CIRCULAR) 
+                                MaterialTheme.colorScheme.primary 
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        if (visualizationMode == VisualizationMode.CIRCULAR) {
+                            androidx.compose.material3.TooltipBox(
+                                positionProvider = androidx.compose.material3.TooltipDefaults.rememberPlainTooltipPositionProvider(
+                                    spacingBetweenTooltipAndAnchor = 4.dp
+                                ),
+                                tooltip = {
+                                    androidx.compose.material3.Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            "圆形频谱图",
+                                            modifier = Modifier.padding(8.dp),
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                },
+                                state = rememberTooltipState()
+                            ) {}
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
                 
                 // 歌曲标题容器，固定宽度
                 Box(
@@ -264,7 +380,17 @@ fun MusicDetailScreen(
                             isDragging = false
                             // 将滑块值转换为毫秒位置
                             val newPosition = (sliderPosition * duration).toInt()
+                            
+                            // 在拖动后，即使MediaPlayer暂停，也尝试确保可视化器更新以显示当前位置的频谱
+                            Log.d("MusicDetailScreen", "拖动结束，寻求到位置: $newPosition")
+                            
+                            // 跳转到新位置
                             musicPlayerManager.seekTo(newPosition)
+                            
+                            // 如果处于暂停状态，临时激活可视化器捕获一帧FFT数据
+                            if (!isPlaying) {
+                                // 界面更新由MusicPlayerManager的seekTo方法中的逻辑处理
+                            }
                         },
                         colors = SliderDefaults.colors(
                             thumbColor = MaterialTheme.colorScheme.primary,

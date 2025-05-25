@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.random.Random
+import kotlin.math.abs
+import kotlin.math.min
 
 enum class PlaybackMode {
     SEQUENTIAL,
@@ -42,15 +44,10 @@ class MusicPlayerManager(private val context: Context) {
     private val _duration = MutableStateFlow(0)
     val duration: StateFlow<Int> = _duration.asStateFlow()
 
-    private val _fftData = MutableStateFlow<ByteArray?>(null)
-    val fftData: StateFlow<ByteArray?> = _fftData.asStateFlow()
-
+    // FFT音频数据和可视化
     private var visualizer: Visualizer? = null
-    
-    // 模拟的FFT数据
-    private var simulationThread: Thread? = null
-    private var useSimulation = false
-    private val simulatedFftSize = 128 // 模拟FFT数据的大小
+    private val _fftData = MutableStateFlow(ByteArray(0))
+    val fftData: StateFlow<ByteArray> = _fftData.asStateFlow()
     
     // 播放列表管理
     private val _playlist = MutableStateFlow<List<MusicFile>>(emptyList())
@@ -156,78 +153,132 @@ class MusicPlayerManager(private val context: Context) {
     // 从URI播放歌曲
     fun playSong(uri: Uri, title: String, artist: String) {
         // 释放已存在的MediaPlayer
-        releaseVisualizer()
         mediaPlayer?.release()
         stopPositionTracking()
-        stopSimulation()
+        releaseVisualizer()
         
-        // 创建新的MediaPlayer
-        mediaPlayer = MediaPlayer().apply {
-            setDataSource(context, uri)
-            prepare()
-            start()
+        try {
+            // 创建新的MediaPlayer
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(context, uri)
+                prepare()
+                
+                // 更新状态信息
+                _duration.value = duration
+                _currentSongTitle.value = title
+                _currentSongArtist.value = artist
+            }
             
-            // 更新状态
+            // 初始化可视化器 - 在开始播放前设置
+            setupVisualizer()
+            
+            // 延迟一点以确保可视化器完全初始化
+            Thread.sleep(50)
+            
+            // 开始播放
+            mediaPlayer?.start()
             _isPlaying.value = true
-            _currentSongTitle.value = title
-            _currentSongArtist.value = artist
-            _duration.value = duration
             
             // 设置完成监听器
-            setOnCompletionListener {
+            mediaPlayer?.setOnCompletionListener {
                 _isPlaying.value = false
                 stopPositionTracking()
-                stopSimulation()
                 // 当前歌曲完成后自动播放下一首
                 playNextSong()
             }
+            
+            // 开始位置跟踪
+            startPositionTracking()
+            
+            Log.d(TAG, "歌曲已开始播放: $title - $artist")
+        } catch (e: Exception) {
+            Log.e(TAG, "播放歌曲时出错", e)
         }
-        
-        // 开始位置跟踪
-        startPositionTracking()
-
-        // 设置可视化器
-        val sessionId = mediaPlayer?.audioSessionId
-        Log.d(TAG, "音频会话ID: $sessionId")
-
-        if (sessionId != null && sessionId != 0) {
+    }
+    
+    // 设置音频可视化器
+    private fun setupVisualizer() {
+        mediaPlayer?.let { player ->
             try {
-                Log.d(TAG, "尝试使用音频会话ID初始化可视化器: $sessionId")
+                // 释放旧的可视化器
+                releaseVisualizer()
+                
+                // 获取有效的会话ID - 使用MediaPlayer的会话ID
+                val sessionId = player.audioSessionId
+                Log.d(TAG, "设置可视化器: 音频会话ID = $sessionId")
+                
+                if (sessionId == -1 || sessionId == 0) {
+                    Log.e(TAG, "无效的音频会话ID: $sessionId")
+                    return
+                }
+                
+                // 创建新的可视化器
                 visualizer = Visualizer(sessionId).apply {
-                    // 设置捕获大小为2的幂以获得更好的FFT结果
-                    captureSize = 1024
+                    enabled = false // 配置前禁用
+                    
+                    // 设置捕获大小（必须是2的幂），以获得良好的频率分辨率
+                    captureSize = Visualizer.getCaptureSizeRange()[1] // 使用最大捕获大小
+                    
+                    Log.d(TAG, "可视化器捕获大小: ${captureSize}, 采样率: ${samplingRate}")
+                    
+                    // 设置数据捕获监听器
                     setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
-                        override fun onWaveFormDataCapture(viz: Visualizer?, waveform: ByteArray?, samplingRate: Int) {}
-                        override fun onFftDataCapture(viz: Visualizer?, fft: ByteArray?, samplingRate: Int) {
-                            if (fft != null) {
-                                // 处理FFT数据以获取幅度值
-                                val processedFft = ByteArray(fft.size / 2)
-                                for (i in 0 until fft.size / 2) {
-                                    val real = fft[i * 2].toFloat()
-                                    val imag = fft[i * 2 + 1].toFloat()
-                                    // 计算幅度并缩放
-                                    val magnitude = Math.sqrt((real * real + imag * imag).toDouble()).toFloat()
-                                    // 将幅度缩放到字节范围(0-255)
-                                    processedFft[i] = (magnitude * 255).toInt().coerceIn(0, 255).toByte()
+                        override fun onWaveFormDataCapture(visualizer: Visualizer, waveform: ByteArray, samplingRate: Int) {
+                            // 不需要处理波形数据
+                        }
+                        
+                        override fun onFftDataCapture(visualizer: Visualizer, fft: ByteArray, samplingRate: Int) {
+                            // 确保数据不为空且有意义
+                            if (fft.isNotEmpty()) {
+                                var sum = 0
+                                for (i in 0 until min(10, fft.size)) {
+                                    sum += abs(fft[i].toInt())
                                 }
-                                _fftData.value = processedFft
+                                
+                                // 只在有意义的数据时更新状态
+                                if (sum > 0) {
+                                    _fftData.value = fft.copyOf() // 使用副本以避免潜在的并发修改问题
+                                    
+                                    // 减少日志频率
+                                    if (Math.random() < 0.05) { // 只记录约5%的更新
+                                        Log.d(TAG, "FFT数据: 长度=${fft.size}, 前10个样本平均=${sum/10}")
+                                    }
+                                } else {
+                                    Log.d(TAG, "收到空的FFT数据")
+                                }
                             }
                         }
-                    }, Visualizer.getMaxCaptureRate() / 2, false, true)
-                    enabled = true
+                    }, Visualizer.getMaxCaptureRate() / 2, false, true) // 只捕获FFT数据
+                    
+                    try {
+                        // 配置完成后启用
+                        enabled = true
+                        Log.d(TAG, "可视化器已启用，开始捕获FFT数据")
+                    } catch (e: SecurityException) {
+                        Log.e(TAG, "没有使用可视化器的权限", e)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "启用可视化器时出错", e)
+                    }
                 }
-                Log.i(TAG, "可视化器成功初始化，音频会话ID: $sessionId。捕获大小: ${visualizer?.captureSize}")
-                useSimulation = false
+                
+                Log.d(TAG, "音频可视化器已初始化")
             } catch (e: Exception) {
-                Log.e(TAG, "为音频会话ID初始化可视化器时出错: $sessionId", e)
-                visualizer = null
-                useSimulation = true
-                startSimulation()
+                Log.e(TAG, "初始化可视化器时出错", e)
             }
-        } else {
-            Log.w(TAG, "无法初始化可视化器: 无效的音频会话ID ($sessionId)")
-            useSimulation = true
-            startSimulation()
+        } ?: Log.e(TAG, "MediaPlayer为空，无法设置可视化器")
+    }
+    
+    // 释放可视化器资源
+    private fun releaseVisualizer() {
+        visualizer?.let {
+            try {
+                it.enabled = false
+                it.release()
+                visualizer = null
+                Log.d(TAG, "已释放可视化器资源")
+            } catch (e: Exception) {
+                Log.e(TAG, "释放可视化器时出错", e)
+            }
         }
     }
     
@@ -239,21 +290,17 @@ class MusicPlayerManager(private val context: Context) {
                 _isPlaying.value = false
                 stopPositionTracking()
                 visualizer?.enabled = false
-                pauseSimulation()
             } else {
                 it.start()
                 _isPlaying.value = true
                 startPositionTracking()
                 visualizer?.enabled = true
-                resumeSimulation()
             }
         }
     }
     
     // 停止播放
     fun stop() {
-        releaseVisualizer()
-        stopSimulation()
         mediaPlayer?.let {
             it.stop()
             it.release()
@@ -264,6 +311,7 @@ class MusicPlayerManager(private val context: Context) {
             _currentPosition.value = 0
             _duration.value = 0
             stopPositionTracking()
+            releaseVisualizer()
         }
     }
     
@@ -271,6 +319,31 @@ class MusicPlayerManager(private val context: Context) {
     fun seekTo(position: Int) {
         mediaPlayer?.seekTo(position)
         _currentPosition.value = position
+        
+        // 如果可视化器处于禁用状态（因为暂停），暂时启用它以获取当前位置的FFT数据
+        val isPlaying = mediaPlayer?.isPlaying ?: false
+        if (!isPlaying && visualizer?.enabled == false) {
+            try {
+                // 临时启用可视化器以获取新位置的FFT数据
+                visualizer?.enabled = true
+                Log.d(TAG, "在寻求位置后临时启用可视化器")
+                
+                // 延迟100毫秒后再禁用，以便有足够时间捕获FFT数据
+                Thread {
+                    try {
+                        Thread.sleep(100)
+                        if (mediaPlayer?.isPlaying == false && visualizer != null) {
+                            visualizer?.enabled = false
+                            Log.d(TAG, "在捕获FFT数据后禁用可视化器")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "临时启用可视化器时出错", e)
+                    }
+                }.start()
+            } catch (e: Exception) {
+                Log.e(TAG, "在寻求位置后启用可视化器时出错", e)
+            }
+        }
     }
     
     // 跟踪播放位置
@@ -297,7 +370,7 @@ class MusicPlayerManager(private val context: Context) {
                             }
                         }
                     }
-                    Thread.sleep(1000) // 现有的休眠
+                    Thread.sleep(100) // 更新更频繁，从1000ms降低到100ms，以获得更流畅的位置更新
                 }
             } catch (e: InterruptedException) {
                 Log.d(TAG, "位置跟踪线程被中断。")
@@ -317,200 +390,12 @@ class MusicPlayerManager(private val context: Context) {
     
     // 完成时清理资源
     fun release() {
-        releaseVisualizer()
-        stopSimulation()
         mediaPlayer?.release()
         mediaPlayer = null
         _isPlaying.value = false
         _currentSongTitle.value = null
         _currentSongArtist.value = null
         stopPositionTracking()
-    }
-
-    private fun releaseVisualizer() {
-        visualizer?.apply {
-            enabled = false
-            release()
-        }
-        visualizer = null
-        _fftData.value = null // 清除FFT数据
-    }
-    
-    // FFT数据模拟方法
-    private fun startSimulation() {
-        if (!useSimulation) return
-        stopSimulation()
-        
-        Log.d(TAG, "开始FFT数据模拟")
-        simulationThread = Thread {
-            try {
-                // 不同频率范围的因子，具有压缩的动态范围
-                val frequencyBandFactors = floatArrayOf(
-                    1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.5f, 1.6f, 1.5f,  // 超低音 (20-60Hz)
-                    1.4f, 1.3f, 1.2f, 1.1f, 1.0f, 0.9f, 0.85f, 0.8f,  // 低音 (60-250Hz)
-                    0.75f, 0.7f, 0.65f, 0.6f, 0.55f, 0.5f, 0.55f, 0.6f,  // 低中音 (250-500Hz)
-                    0.65f, 0.7f, 0.75f, 0.8f, 0.85f, 0.9f, 0.85f, 0.8f,  // 中音 (500-2kHz)
-                    0.75f, 0.7f, 0.65f, 0.6f, 0.55f, 0.5f, 0.45f, 0.4f,  // 中高音 (2-4kHz)
-                    0.35f, 0.3f, 0.25f, 0.2f, 0.15f, 0.1f, 0.05f, 0.05f   // 高音 (4-20kHz)
-                )
-                
-                // 每个频带的基础动画速度（高频率更多变化）
-                val bandAnimationSpeeds = floatArrayOf(
-                    0.3f, 0.35f, 0.4f, 0.45f, 0.5f, 0.55f, 0.6f, 0.65f,  // 超低音
-                    0.7f, 0.75f, 0.8f, 0.85f, 0.9f, 0.95f, 1.0f, 1.05f,  // 低音
-                    1.1f, 1.15f, 1.2f, 1.25f, 1.3f, 1.35f, 1.4f, 1.45f,  // 低中音
-                    1.5f, 1.55f, 1.6f, 1.65f, 1.7f, 1.75f, 1.8f, 1.85f,  // 中音
-                    1.9f, 1.95f, 2.0f, 2.05f, 2.1f, 2.15f, 2.2f, 2.25f,  // 中高音
-                    2.3f, 2.35f, 2.4f, 2.45f, 2.5f, 2.55f, 2.6f, 2.65f   // 高音
-                )
-                
-                // 确保数组匹配我们模拟的大小
-                val adjustedBandFactors = if (frequencyBandFactors.size > simulatedFftSize) {
-                    frequencyBandFactors.sliceArray(0 until simulatedFftSize)
-                } else {
-                    frequencyBandFactors
-                }
-                
-                val adjustedAnimationSpeeds = if (bandAnimationSpeeds.size > simulatedFftSize) {
-                    bandAnimationSpeeds.sliceArray(0 until simulatedFftSize)
-                } else {
-                    bandAnimationSpeeds
-                }
-                
-                // 跟踪每个频率波段动画相位的值
-                val phases = FloatArray(simulatedFftSize) { 0f }
-                
-                // 高频的独立随机偏移
-                val highFreqOffsets = FloatArray(simulatedFftSize) { 
-                    if (it >= simulatedFftSize * 0.6f) (Math.random() * Math.PI * 2).toFloat() else 0f 
-                }
-                
-                // 获取初始时间戳
-                var lastTime = System.currentTimeMillis()
-                
-                while (!Thread.currentThread().isInterrupted) {
-                    if (_isPlaying.value) {
-                        val currentTime = System.currentTimeMillis()
-                        val deltaTime = (currentTime - lastTime) / 1000f // 以秒为单位的时间差
-                        lastTime = currentTime
-                        
-                        // 基于当前位置和时间生成模拟的FFT数据
-                        val simulatedData = ByteArray(simulatedFftSize)
-                        val currentPos = _currentPosition.value
-                        val duration = _duration.value
-                        val songProgress = currentPos.toFloat() / duration.coerceAtLeast(1)
-                        
-                        // 为每个频率波段创建动态模式
-                        for (i in 0 until simulatedFftSize) {
-                            // 更新这个频率波段的相位
-                            phases[i] += deltaTime * adjustedAnimationSpeeds.getOrElse(i) { 1.0f } * 2f
-                            
-                            // 确定这是否是高频波段
-                            val isHighFreq = i >= simulatedFftSize * 0.6f
-                            
-                            // 偶尔更新高频偏移
-                            if (isHighFreq && Math.random() < 0.02) { // 每帧2%的概率
-                                highFreqOffsets[i] = (Math.random() * Math.PI * 2).toFloat()
-                            }
-                            
-                            // 使用几个不同相位的正弦波的基本模式
-                            val baseSine = Math.sin(phases[i] * Math.PI + highFreqOffsets[i]).toFloat()
-                            
-                            // 高频与低频不同行为的次级波
-                            val secondarySine = if (isHighFreq) {
-                                // 高频有更独立的运动
-                                Math.sin((phases[i] * 2.5f + highFreqOffsets[i]) * Math.PI).toFloat() * 0.4f
-                            } else {
-                                // 低频更受歌曲位置影响
-                                Math.sin((phases[i] * 1.5f + songProgress * 3f) * Math.PI).toFloat() * 0.5f
-                            }
-                            
-                            val tertiarySine = if (isHighFreq) {
-                                // 高频有更独立的运动
-                                Math.sin((phases[i] * 1.2f + highFreqOffsets[i] * 2f) * Math.PI).toFloat() * 0.2f
-                            } else {
-                                // 低频更受歌曲位置影响
-                                Math.sin((phases[i] * 0.8f + songProgress * 5f) * Math.PI).toFloat() * 0.3f
-                            }
-                            
-                            // 以不同权重组合波
-                            val combinedWave = (baseSine + secondarySine + tertiarySine) / 1.8f
-                            
-                            // 应用频率波段因子（该波段中有多少能量）
-                            val bandFactor = adjustedBandFactors.getOrElse(i) { 1.0f }
-                            
-                            // 添加随机变化 - 高频更多
-                            val randomFactor = if (isHighFreq) {
-                                (Math.random() * 0.5).toFloat() // 更多随机性
-                            } else {
-                                (Math.random() * 0.3).toFloat() // 更少随机性
-                            }
-                            
-                            // 计算原始值
-                            val rawValue = (combinedWave * 0.7f + randomFactor) * bandFactor
-                            
-                            // 应用对数压缩以减少动态范围
-                            val compressedValue = if (rawValue > 0) {
-                                val logBase = 10f
-                                val compressionFactor = 0.5f
-                                (1f + compressionFactor * (Math.log10((1f + rawValue * (logBase - 1f)).toDouble()) /
-                                    Math.log10(logBase.toDouble()))).toFloat() - 1f
-                            } else {
-                                0f
-                            }
-                            
-                            // 缩放到字节范围
-                            val value = (compressedValue * 255)
-                                .toInt()
-                                .coerceIn(5, 255) // 确保至少有一些最小值
-                            
-                            simulatedData[i] = value.toByte()
-                        }
-                        
-                        // 基于歌曲位置创建节拍模式 - 只影响低频
-                        val beatFrequency = 0.5f + (songProgress * 1.5f) // 随着歌曲进展，节拍变快
-                        val beatPhase = (currentTime / 1000f) * beatFrequency * Math.PI.toFloat()
-                        val beatStrength = (Math.sin(beatPhase.toDouble()) * 0.5 + 0.5).toFloat()
-                        
-                        // 突出节拍上的低频 - 但不是高频
-                        for (i in 0 until (simulatedFftSize * 0.3f).toInt()) {
-                            val value = simulatedData[i].toInt() and 0xFF
-                            val newValue = (value * (1f + beatStrength * 0.7f)).toInt().coerceIn(0, 255)
-                            simulatedData[i] = newValue.toByte()
-                        }
-                        
-                        _fftData.value = simulatedData
-                    }
-                    
-                    // 限制更新率以避免过度使用CPU
-                    Thread.sleep(33) // ~30fps
-                }
-            } catch (e: InterruptedException) {
-                Log.d(TAG, "模拟线程被中断")
-            } catch (e: Exception) {
-                Log.e(TAG, "模拟线程出错", e)
-            }
-        }.apply {
-            start()
-        }
-    }
-    
-    private fun stopSimulation() {
-        simulationThread?.interrupt()
-        simulationThread = null
-    }
-    
-    private fun pauseSimulation() {
-        // 只停止更新但不杀死线程
-        useSimulation = false
-    }
-    
-    private fun resumeSimulation() {
-        if (visualizer == null) {
-            useSimulation = true
-            if (simulationThread == null) {
-                startSimulation()
-            }
-        }
+        releaseVisualizer()
     }
 } 
