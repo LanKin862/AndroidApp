@@ -72,6 +72,9 @@ dependencies {
     // OkHttp for API calls
     implementation(libs.okhttp)
     
+    // Markdown
+    implementation("com.github.jeziellago:compose-markdown:0.3.6")
+    
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
